@@ -1,0 +1,8 @@
+<menu>
+  <item>
+     <path>civicrm/admin/receipt/preview</path>
+     <title>Preview CiviCRM Receipt</title>
+     <page_callback>CRM_Contribute_Receipt::preview</page_callback>
+     <access_arguments>administer CiviCRM</access_arguments>
+  </item>
+</menu>

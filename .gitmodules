@@ -1,0 +1,3 @@
+[submodule "tcpdf"]
+	path = tcpdf
+	url = git://git.code.sf.net/p/tcpdf/code
