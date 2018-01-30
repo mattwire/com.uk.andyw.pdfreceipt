@@ -1,48 +1,48 @@
 <?php
 
-/** 
+/**
  * PDF Receipt Extension for CiviCRM
  * @package com.uk.andyw.pdfreceipt
  * @author  andyw
- * 
+ *
  * Distributed under the GNU Affero General Public License, version 3
- * http://www.gnu.org/licenses/agpl-3.0.html 
+ * http://www.gnu.org/licenses/agpl-3.0.html
  */
 
 abstract class CRM_Contribute_Receipt {
-    
+
     # force extending classes to provide a human-readable name
     # ie: return ts('Name of template');
     abstract public function name();
-    
+
     protected $format,
               $pdf,
               $fonts_dir,
               $image_dir,
               $ext_dir,
               $header_height,
-              $debug, 
+              $debug,
               $border;
-    
+
     protected $currentY;
-    
+
     # entities we may need for building receipt
     protected $contact,
               $contribution,
               $event,
               $membership,
               $participant;
-              
-    
+
+
     public function __construct() {
-        
+
         require_once 'api/api.php';
         $config = &CRM_Core_Config::singleton();
-        
-        $this->ext_dir   = $config->extensionsDir . DIRECTORY_SEPARATOR . 'com.uk.andyw.pdfreceipt'; 
+
+        $this->ext_dir   = $config->extensionsDir . DIRECTORY_SEPARATOR . 'com.uk.andyw.pdfreceipt';
         $this->fonts_dir = $this->ext_dir . DIRECTORY_SEPARATOR . 'fonts';
         $this->image_dir = $config->customFileUploadDir;
-       
+
         // set some basic defaults if $format not populated
         $this->format = array_merge(
             array(
@@ -56,18 +56,18 @@ abstract class CRM_Contribute_Receipt {
             $this->format
         );
     }
-    
+
     # build address string from a passed in array
     protected function buildAddress($address) {
-        
+
         $output = array();
-        
-        if (isset($address['country_id']) and !empty($address['country_id'])) 
-            $address['country'] = CRM_Core_PseudoConstant::country($address['country_id']);  
-        
-        if (isset($address['state_province_id']) and !empty($address['state_province_id'])) 
-            $address['state_province'] = CRM_Core_PseudoConstant::stateProvince($address['state_province_id']);  
-        
+
+        if (isset($address['country_id']) and !empty($address['country_id']))
+            $address['country'] = CRM_Core_PseudoConstant::country($address['country_id']);
+
+        if (isset($address['state_province_id']) and !empty($address['state_province_id']))
+            $address['state_province'] = CRM_Core_PseudoConstant::stateProvince($address['state_province_id']);
+
         foreach (
             array(
                 'street_address',
@@ -79,39 +79,40 @@ abstract class CRM_Contribute_Receipt {
             ) as $field)
                 if (isset($address[$field]) and !empty($address[$field]))
                     $output[] = $address[$field];
-        
+
         return implode("\n", $output);
     }
-    
+
     final public function create($params) {
-            
-        # initialize tcpdf instance ..        
+
+        # initialize tcpdf instance ..
         $pdf = &$this->pdf;
         $pdf = new CRM_Utils_PDF_Receipt($this->format, $this->format['metric']);
-        
+
         $this->preview = isset($params['preview']) ? $params['preview'] : false;
-        
+
         # set basic defaults
         $pdf->open();
         $pdf->setPrintHeader(false);
-	    $pdf->setPrintFooter(false);
+	      $pdf->setPrintFooter(false);
         $pdf->AddPage();
-        
-        $pdf->addTTFfont($this->fonts_dir . DIRECTORY_SEPARATOR . 'SourceSansPro-Regular.ttf', 'TrueType', 'ansi', 32);
-        $pdf->addTTFfont($this->fonts_dir . DIRECTORY_SEPARATOR . 'SourceSansPro-Semibold.ttf', 'TrueType', 'ansi', 32);
-        
+
+        TCPDF_FONTS::addTTFfont($this->fonts_dir . DIRECTORY_SEPARATOR . 'SourceSansPro-Regular.ttf', 'TrueType', 'ansi', 32);
+        TCPDF_FONTS::addTTFfont($this->fonts_dir . DIRECTORY_SEPARATOR . 'SourceSansPro-Bold.ttf', 'TrueType', 'ansi', 32);
+
+        $pdf->SetFont('sourcesanspro', '', $this->fontSize, true);
         $pdf->SetFont('sourcesanspro', '', $this->fontSize, true);
         $pdf->SetGenerator($this, "generateReceipt");
-        
+
         # now call 'initialize', allowing custom receipt templates to override
         # the above defaults if they wish to
         $this->initialize();
-        
+
         if (!$this->preview) {
-            
+
             // If so, retrieve all related ids
             if (isset($params['ids']['participant']) and !empty($params['ids']['participant'])) {
-                
+
                 $dao = CRM_Core_DAO::executeQuery("
                         SELECT ct.id AS contribution_id, bc.id AS billing_contact_id, pc.id AS primary_contact_id, e.id AS event_id
                           FROM civicrm_participant_payment pp
@@ -125,7 +126,7 @@ abstract class CRM_Contribute_Receipt {
                        1 => array($params['ids']['participant'], 'Integer')
                    )
                 );
-                
+
                 if ($dao->fetch()) {
                     $params['ids']['contact'] = array(
                         'billing' => $dao->billing_contact_id,
@@ -135,12 +136,12 @@ abstract class CRM_Contribute_Receipt {
                     $params['ids']['event']        = $dao->event_id;
                 }
 
-                
-            
+
+
 
             } elseif (isset($params['ids']['membership']) and !empty($params['ids']['membership'])) {
 
-                # online membership signup hook provides a membership_id but no contribution_id - 
+                # online membership signup hook provides a membership_id but no contribution_id -
                 # so lookup the contribution_id
                 $contribution_id = CRM_Core_DAO::singleValueQuery(
                     "SELECT contribution_id FROM civicrm_membership_payment WHERE membership_id = %1 ORDER BY id DESC LIMIT 1",
@@ -151,9 +152,9 @@ abstract class CRM_Contribute_Receipt {
 
                 if (!$contribution_id) {
 
-                    # ok, but that doesn't work for pay laters, as it creates a contribution and a membership, but doesn't 
+                    # ok, but that doesn't work for pay laters, as it creates a contribution and a membership, but doesn't
                     # link them together with a MembershipPayment record - please just kill me now :(
-                
+
                     # dunno - get the last contribution for this contact or something?
                     $contribution_id = CRM_Core_DAO::singleValueQuery(
                         "SELECT id FROM civicrm_contribution WHERE contact_id = %1 ORDER BY id DESC LIMIT 1",
@@ -162,7 +163,7 @@ abstract class CRM_Contribute_Receipt {
                         )
                     );
 
-                } 
+                }
 
                 if (!$contribution_id) {
                     CRM_Core_Error::debug_log_message(ts(
@@ -185,9 +186,9 @@ abstract class CRM_Contribute_Receipt {
 
 
             } elseif (isset($params['ids']['contact']) and !empty($params['ids']['contact'])) {
-                
+
                 # get most recent contribution for contact, and associated membership id if applicable - this
-                # is not an ideal way to look up the contribution, but a contact_id is all we get passed in the case of 
+                # is not an ideal way to look up the contribution, but a contact_id is all we get passed in the case of
                 # some templates
 
                 $dao = CRM_Core_DAO::executeQuery("
@@ -197,7 +198,7 @@ abstract class CRM_Contribute_Receipt {
                      LEFT JOIN civicrm_membership_payment mp ON mp.contribution_id = ct.id
                      LEFT JOIN civicrm_membership m ON m.id = mp.membership_id
                          WHERE c.id = %1
-                      ORDER BY ct.receive_date DESC 
+                      ORDER BY ct.receive_date DESC
                          LIMIT 1
                 ", array(
                        1 => array($params['ids']['contact'], 'Integer')
@@ -214,7 +215,7 @@ abstract class CRM_Contribute_Receipt {
 
             } else return; # for now
 
-                    
+
             # load required entities - I think I may have been on drugs when I wrote this
             # todo: rewrite sensibly
             if (isset($params['ids'])) {
@@ -222,7 +223,7 @@ abstract class CRM_Contribute_Receipt {
                     if (method_exists($this, 'get' . ucfirst($entity))) {
                         if (is_array($id)) {
                             $array = array();
-                            foreach ($id as $subtype => $subtype_id) 
+                            foreach ($id as $subtype => $subtype_id)
                                 $array[$subtype] = call_user_func_array(array($this, 'get' . ucfirst($entity)), array($subtype_id));
                             $this->$entity = $array;
                         } else {
@@ -232,7 +233,7 @@ abstract class CRM_Contribute_Receipt {
                 }
             }
         } else {
-            
+
             # Otherwise (if this is a preview), populate with dummy details
             $this->participant        = $this->getDummyDetails('participant');
             $this->contact['billing'] = $this->getDummyDetails('contact');
@@ -240,47 +241,47 @@ abstract class CRM_Contribute_Receipt {
             $this->contribution       = $this->getDummyDetails('contribution');
             $this->event              = $this->getDummyDetails('event');
             $this->membership         = $this->getDummyDetails('membership');
-        
+
         }
-        
+
         # run main invoice generation code
         $this->generateReceipt($params);
-        
-        # output to temp file or output inline data if we're in preview mode ..  
+
+        # output to temp file or output inline data if we're in preview mode ..
         $pdf->Output($params['filename'], $this->preview ? 'I' : 'F');
 
-        # delete temporary pdf file when script shuts down   
+        # delete temporary pdf file when script shuts down
         register_shutdown_function(function($pdf_file) { @unlink($pdf_file); }, $params['filename']);
- 
+
         return $params;
 
     }
-    
+
     final public function createContributionSet(&$params) {
-    
+
     }
-    
+
     final public function createParticipantSet(&$params) {
-    
+
     }
 
     public function generateReceipt(&$params) {
-        
+
         $this->printHeaderTop();
         $this->printHeaderBottom();
         $this->printBodyTop();
         $this->printBody();
         $this->printBodyBottom();
         $this->printFooter();
-        
+
     }
-    
+
     // Get (primary or billing) address for contact id
     protected function getAddress($contact_id, $type='primary') {
-        
+
         if ($this->preview)
             return $this->getDummyDetails('address');
-        
+
         $params = array(
             'version'    => '3',
             'contact_id' => $contact_id,
@@ -289,17 +290,17 @@ abstract class CRM_Contribute_Receipt {
             $params['is_primary'] = 1;
         elseif ($type == 'billing')
             $params['is_billing'] = 1;
-        
+
         $result = civicrm_api('address', 'get', $params);
-        if (!$result['is_error']) 
+        if (!$result['is_error'])
             return reset($result['values']);
-        
+
         return array();
-    
+
     }
-    
+
     protected function getBillingContactDetails() {
-        
+
         # attempt to get billing address for the billing contact ..
         $billing_address = '';
         if ($address = $this->getAddress($this->contact['billing']['id'], 'billing')) {
@@ -308,62 +309,62 @@ abstract class CRM_Contribute_Receipt {
                 $billing_address = $this->buildAddress($address);
             }
         }
-        
+
         # if that turns out to be empty, get their primary address
         if (empty($billing_address)) {
-            if ($address = $this->getAddress($this->contact['billing']['id'], 'primary')) 
+            if ($address = $this->getAddress($this->contact['billing']['id'], 'primary'))
                 $billing_address = $this->buildAddress($address);
         }
-        
+
         # prepend either organization name or display name to contact details
         if ($this->contact['billing']['contact_type'] == 'Organization')
             return $this->contact['billing']['organization_name'] . "\n" . $billing_address;
-        
-        return $billing_address = $this->contact['billing']['display_name'] . "\n" . $billing_address;   
-    
-    
+
+        return $billing_address = $this->contact['billing']['display_name'] . "\n" . $billing_address;
+
+
     }
-        
+
     // Get contact from contact id
     protected function getContact($id) {
-        
+
         // if id of -1 supplied (pdf preview), return contact id 1
         if ($id == -1)
             $id = 1;
-      
-        $result = civicrm_api('contact', 'get', 
+
+        $result = civicrm_api('contact', 'get',
             array(
                 'version' => '3',
                 'id'      => $id
             )
         );
-        if (!$result['is_error']) 
+        if (!$result['is_error'])
             return reset($result['values']);
         return array();
-            
+
     }
-    
+
     // Get contribution from contribution id
     protected function getContribution($id) {
-        
+
         // if id of -1 supplied, return dummy contribution details (for previewing templates)
-        if ($id == -1 or !$id) 
+        if ($id == -1 or !$id)
             return array();
-    
-        $result = civicrm_api('contribution', 'get', 
+
+        $result = civicrm_api('contribution', 'get',
             array(
                 'version' => '3',
                 'id'      => $id
             )
         );
-        if (!$result['is_error']) 
+        if (!$result['is_error'])
             return reset($result['values']);
         return array();
-    
+
     }
-    
+
     protected function getDummyDetails($entity) {
-        
+
         $details = array(
             'address'      => array(
                 'street_address'    => '39 Test Street',
@@ -387,173 +388,190 @@ abstract class CRM_Contribute_Receipt {
                 'contribution_status_id' => 1
             ),
             'event'        => array(
-                
+
             ),
             'membership'   => array(
-            
+
             ),
             'lineItems'    => array(
-                
+
             )
         );
         return isset($details[$entity]) ? $details[$entity] : array();
     }
-    
+
     // Get event from event id
     protected function getEvent($id) {
-        
-        $result = civicrm_api('event', 'get', 
+
+        $result = civicrm_api('event', 'get',
             array(
                 'version' => '3',
                 'id'      => $id
             )
         );
-        if (!$result['is_error']) 
+        if (!$result['is_error'])
             return reset($result['values']);
         return array();
-        
+
     }
-    
+
     protected function getLineItems($entity_type, $entity_id) {
 		return CRM_Price_BAO_LineItem::getLineItems($entity_id, $entity_type);
     }
-    
+
+    protected function getLineItemsByContributionID($contribution_id) {
+
+        try {
+            $result = civicrm_api3('LineItem', 'get', [
+                'contribution_id' => $contribution_id
+            ]);
+        } catch (CiviCRM_API3_Exception $e) {
+            CRM_Core_Error::debug_log_message('Line item get failed in ' . __CLASS__ . '::' . __METHOD__ . '(): ' . $e->getMessage());
+        }
+
+        if (isset($result['values']))
+            return $result['values'];
+
+        return [];
+
+    }
+
     protected function getLogo() {
-        
+
         $ds = DIRECTORY_SEPARATOR;
-        
+
         // Check if a logo.xxx file exists in files/civicrm/custom, or default
         // to the Civi logo included with the extension
         switch (true) {
             case file_exists($file = $this->image_dir . $ds . 'logo.jpg'):
-            case file_exists($file = $this->image_dir . $ds . 'logo.gif'):            
+            case file_exists($file = $this->image_dir . $ds . 'logo.gif'):
             case file_exists($file = $this->image_dir . $ds . 'logo.png'):
             case file_exists($file = $this->ext_dir . $ds . 'images' . $ds . 'civicrm-logo.png'):
                 break;
             default:
                 return new Stdclass;
         }
-        
-        $meta = @getimagesize($file) or $meta = array(0, 0);        
-        
+
+        $meta = @getimagesize($file) or $meta = array(0, 0);
+
         return (object)array(
             'file'   => $file,
             'width'  => array_shift($meta),
             'height' => array_shift($meta)
         );
-        
+
     }
-    
+
     // Get membership from membership id
     protected function getMembership($id) {
-        
+
         if ($id == -1)
             return array(
-            
+
             );
-        
-        $result = civicrm_api('membership', 'get', 
+
+        $result = civicrm_api('membership', 'get',
             array(
                 'version' => '3',
                 'id'      => $id
             )
         );
-        if (!$result['is_error']) 
+        if (!$result['is_error'])
             return reset($result['values']);
         return array();
-        
+
     }
-    
+
     // Get organization domain details
     protected function getOrganizationDetails() {
-        
-        $result = civicrm_api('domain', 'get', 
+
+        $result = civicrm_api('domain', 'get',
             array(
                 'version' => '3',
                 'id'      => CIVICRM_DOMAIN_ID
             )
         );
-        if (!$result['is_error']) 
+        if (!$result['is_error'])
             return reset($result['values']);
         return array();
-    
+
     }
-    
+
     // Get participant from participant id
     protected function getParticipant($id) {
-        
+
         if ($id == -1)
             return array(
-            
+
             );
-        
-        $result = civicrm_api('participant', 'get', 
+
+        $result = civicrm_api('participant', 'get',
             array(
                 'version' => '3',
                 'id'      => $id
             )
         );
-        if (!$result['is_error']) 
+        if (!$result['is_error'])
             return reset($result['values']);
         return array();
-        
+
     }
-    
+
     // Get the primary address of the primary contact
     protected function getPrimaryContactDetails() {
-        
-        if ($address = $this->getAddress($this->contact['primary']['id'], 'primary')) 
+
+        if ($address = $this->getAddress($this->contact['primary']['id'], 'primary'))
             $primary_address = $this->buildAddress($address);
-        
+
         // Prepend either organization name or display name to contact details
         if ($this->contact['primary']['contact_type'] == 'Organization')
             return $this->contact['primary']['organization_name'] . "\n" . $primary_address;
-        
-        return $primary_address = $this->contact['primary']['display_name'] . "\n" . $primary_address;  
+
+        return $primary_address = $this->contact['primary']['display_name'] . "\n" . $primary_address;
     }
-        
-    public function initialize() { 
+
+    public function initialize() {
         // This method is intentionally left empty so child classes can override it if necessary.
         // Do not remove it.
     }
-    
+
     // page callback for receipt preview - output pdf data inline
     public function preview() {
-        
+
         // todo: lookup
-        $template_class = 'CRM_Contribute_Receipt_ChamberlainDunn';            
+        $template_class = 'CRM_Contribute_Receipt_SOM';
         $receipt        = new $template_class;
-        
+
         $receipt->create($params = array(
-            'filename' => 'receipt.pdf', 
+            'filename' => 'receipt.pdf',
             'preview'  => true
         ));
- 
+
         CRM_Utils_System::civiExit();
-    
+
     }
-    
+
     // 'Print' methods to generate various portions of a receipt / invoice
     // These are the primary methods to override when creating custom receipt templates
     public function printBackground() {
-    
+
     }
-    
+
     public function printBodyBottom() {
-    
+
     }
-    
+
     public function printBodyTop() {
-        
+
         $pdf = &$this->pdf;
-        
+
         // Print billing contact details
         $billingContactDetails = $this->getBillingContactDetails();
         $label                 = ts('Sold to');
         $address_height_1      = $pdf->getStringHeight(0, $label) + $pdf->getStringHeight(0, $billingContactDetails);
-        
+
         $pdf->SetXY($pdf->marginLeft, $this->currentY + 4);
-        $pdf->SetFont('sourcesansprosemib', '', $pdf->fontSize, true);
+        $pdf->SetFont('sourcesanspro', '', $pdf->fontSize, true);
         $pdf->Cell(50, 0, $label . ':', $this->border, 1);
         $pdf->SetFont('sourcesanspro', '', $pdf->fontSize, true);
         $pdf->MultiCell(50, 0, $billingContactDetails, $this->border, 'L', false, 1, '', '', true, 0, false, true, 0, 'M');
@@ -563,36 +581,36 @@ abstract class CRM_Contribute_Receipt {
         $label                 = ts('Ship to');
         $address_height_2      = $pdf->getStringHeight(0, $label) + $pdf->getStringHeight(0, $primaryContactDetails);
         $offsetX               = $pdf->getPageWidth() - $pdf->marginRight - 50;
-        
+
         $pdf->SetXY($offsetX, $this->currentY + 4);
-        $pdf->SetFont('sourcesansprosemib', '', $pdf->fontSize, true);
+        $pdf->SetFont('sourcesanspro', '', $pdf->fontSize, true);
         $pdf->Cell(0, 0, $label . ':', $this->border, 1);
         $pdf->SetFont('sourcesanspro', '', $pdf->fontSize, true);
         $pdf->SetXY($offsetX, $this->currentY + 4 + $pdf->getStringHeight(0, $label));
         $pdf->MultiCell(0, 0, $primaryContactDetails, $this->border, 'L', false, 1, '', '', true, 0, false, true, 0, 'M');
-        
-        // Set currentY to the bottom of the longest address        
+
+        // Set currentY to the bottom of the longest address
         $this->currentY += ($address_height_1 > $address_height_2 ? $address_height_1 : $address_height_2) + 4;
-        
+
     }
-    
+
     public function printBody() {
-        
+
         $pdf               = &$this->pdf;
         $td_border_full    = 'text-align:center; border-right:1px solid black; border-bottom:1px solid black;';
 		$td_border_partial = 'border-right:1px solid black;';
 		$table_style       = 'border-left:1px solid black; border-top:1px solid black; margin:0; width:100%;';
-        
+
         // temp ..
-        $footer_text = "If making a transfer, we request a remittance advice that quotes the above invoice number.<br />" . 
-		               "All cheques must be in GB pounds. Please make cheques payable to 'Circle Interactive'.<br />" . 
+        $footer_text = "If making a transfer, we request a remittance advice that quotes the above invoice number.<br />" .
+		               "All cheques must be in GB pounds. Please make cheques payable to 'Circle Interactive'.<br />" .
 		               "Transfers can be made to Pretend Bank PLC. Sort code: 00-00-00 Account no. 0000000";
-		
-        // Construct upper table 
+
+        // Construct upper table
         ob_start();
-        
+
 		?>
-		
+
 		<table cellpadding="2" style="<?php echo $table_style; ?>">
 		  <tr>
 		    <td colspan="2" style="height:28px; width:140px; <?php echo $td_border_full; ?>"></td>
@@ -608,35 +626,35 @@ abstract class CRM_Contribute_Receipt {
 		</table>
 
 		<?php
-		
+
 		$html_upper = ob_get_clean();
-                
+
         # print upper table
         $tableBeginY = $this->currentY + 10;
 		$pdf->setXY($pdf->marginLeft - 1.0, $tableBeginY);
 		$pdf->WriteHTMLCell(0, '', '', '', $html_upper, 0/*$this->border*/, 1, false, true, '', false);
-        
+
         $main_top = $pdf->GetY();
-        
+
         $pdf->setXY(24, $tableBeginY + 1);
 		$pdf->Cell(10, 8, 'Purchase Order No');
 		$pdf->setXY(67.5, $tableBeginY + 1);
 		$pdf->Cell(25, 8, 'Order Date');
 		$pdf->setXY(158, $tableBeginY + 1);
 		$pdf->Cell(30, 8, 'Invoice Date');
-        
+
         # construct main table
         $lineItems    = $this->getLineItems('participant', $this->participant['id']);
         $is_paid      = ($this->contribution['contribution_status_id'] == 1);
         $total_amount = $this->contribution['total_amount'];
-        
+
         if ($this->contact['primary']['contact_type'] == 'Organization')
-            $primary_contact_name = $this->contact['primary']['organization_name']; 
+            $primary_contact_name = $this->contact['primary']['organization_name'];
         else
-            $primary_contact_name = $this->contact['primary']['display_name']; 
-            
+            $primary_contact_name = $this->contact['primary']['display_name'];
+
         ob_start();
-        
+
         ?>
 		<table cellpadding="2" style="<?php echo $table_style; ?>">
 		  <tr>
@@ -644,10 +662,10 @@ abstract class CRM_Contribute_Receipt {
 		    <td colspan="3" style="width:276px; <?php echo $td_border_full; ?>"></td>
 		    <td style="width:82px; <?php echo $td_border_full; ?>">Unit<br />Price</td>
 		    <td style="width:82px; <?php echo $td_border_full; ?>">Extended<br />Price</td>
-		  </tr>		
-		  
+		  </tr>
+
 		<?php
-		foreach ($lineItems as $item) { 
+		foreach ($lineItems as $item) {
         ?>
           <tr>
             <td style="height:3px; <?php echo $td_border_partial ?>"></td>
@@ -687,74 +705,74 @@ abstract class CRM_Contribute_Receipt {
 		    <td style="width:82px; <?php echo $td_border_full; ?>"><?php if (!$is_paid) echo CRM_Utils_Money::format($total_amount); else echo '0.00'; ?></td>
 		  </tr>
 		</table>
-		
+
 		<?php
 		$html_main = ob_get_clean();
-        
+
         //$pdf->setXY($pdf->marginLeft, /*$main_top + 5*/ 95);
         $pdf->WriteHTMLCell(0, 100, $pdf->marginLeft - 1.0, $tableBeginY + 20, $html_main, 0, 1, false, true, '', false);
-		
+
 		$footer_pos = array(
 			'x' => $pdf->getX(),
 			'y' => $pdf->getY()
 		);
-		
+
 		$pdf->setXY($pdf->marginLeft, $tableBeginY + 125);
         $pdf->WriteHTMLCell(0, 0, $pdf->marginLeft - 1.0, $tableBeginY + 125, $footer_text, 0, 1);
-        
+
     }
-    
+
     public function printFooter() {
-    
+
     }
-    
+
     public function printHeaderBottom() {
-                
+
         $pdf = &$this->pdf;
-     
+
         // Print document type, ie: RECEIPT or INVOICE
         $pdf->SetFontSize($pdf->fontSize * 1.8);
-        
+
         $label        = $this->contribution['is_pay_later'] ? ts('INVOICE') : ts('RECEIPT');
         $ypos         = $pdf->getImageRBY() + 4;
         $label_height = $pdf->getStringHeight($label);
-        
+
         $pdf->SetXY($pdf->marginLeft + 90, $ypos);
-        $pdf->MultiCell(0, 0, $label, $this->border, 'R');   
-        
+        $pdf->MultiCell(0, 0, $label, $this->border, 'R');
+
         //$ypos += $label_height;
-        
+
         // Print invoice number
         $pdf->SetXY($pdf->marginLeft + 90, $ypos + $label_height);
         $pdf->SetFontSize($pdf->fontSize);
-        
+
         $label         = ts('Invoice no') . ': ' . $this->contribution['invoice_id'];
         $label_height += $pdf->getStringHeight($label);
-        
+
         $pdf->MultiCell(0, 0, $label, $this->border, 'R');
-        
+
         // Update currentY to ypos of whichever column is taller
-        if (($ypos + $label_height) > ($pdf->marginTop + $this->header_height)) 
+        if (($ypos + $label_height) > ($pdf->marginTop + $this->header_height))
             $this->currentY = $ypos + $label_height;
         else
             $this->currentY = $pdf->marginTop + $this->header_height;
     }
-    
+
     public function printHeaderTop() {
-        
+
         // Print organization details and logo
         $this->printOrganizationDetails();
         $this->printLogo();
-    
+
     }
-    
+
     public function printLogo() {
-        
+
         $pdf          = &$this->pdf;
         $logo         = $this->getLogo();
         $scale        = $pdf->getImageScale();
         $height       = $this->header_height;
-        
+
         $pdf->Image(
             $logo->file,     // file
             '',              // x
@@ -777,26 +795,26 @@ abstract class CRM_Contribute_Receipt {
             array()          // altimgs
         );
     }
-    
+
     public function printOrganizationDetails() {
-        
+
         $pdf          = &$this->pdf;
         $organization = $this->getOrganizationDetails();
         $address      = &$organization['domain_address'];
         $details      = array();
-            
+
         // Assemble organization details
         $details  = $organization['name'];
         $details .= "\n" . $this->buildAddress($address);
-        
+
         // get the height when printed - this determines max height of the logo image
         $this->header_height = $pdf->getStringHeight(0, $details);
 
-        // Print the domain organization name and address       
+        // Print the domain organization name and address
 		$pdf->MultiCell(50, 20, $details, $this->border, 'L', false, 1, '', '', true, 0, false, true, 0, 'M');
-    
+
     }
-    
+
     protected function setDebug($debug = true) {
         if (!$debug) {
             $this->debug  = false;
@@ -806,8 +824,8 @@ abstract class CRM_Contribute_Receipt {
             $this->border = "LTRB";
         }
     }
-    
-    
+
+
 };
 
 ?>
