@@ -153,11 +153,6 @@ class PDF_Receipt_SOM extends CRM_Contribute_Receipt {
     if (!empty($params['description'])) {
       $item_details = $params['description'];
     }
-    else {
-      if (isset($this->contact['primary']['display_name'])) {
-        $item_details = "Appraisal Fees: " . $this->contact['primary']['display_name'];
-      }
-    }
 
     $row_height = $pdf->getStringHeight($col_widths['title'], $item_details);
 

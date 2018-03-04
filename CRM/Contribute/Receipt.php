@@ -106,8 +106,7 @@ abstract class CRM_Contribute_Receipt {
 
     // Get details for receipt
     // If so, retrieve all related ids
-    if (isset($params['ids']['participant']) and !empty($params['ids']['participant'])) {
-
+    if (!empty($params['ids']['participant'])) {
       $dao = CRM_Core_DAO::executeQuery("
                         SELECT ct.id AS contribution_id, bc.id AS billing_contact_id, pc.id AS primary_contact_id, e.id AS event_id
                           FROM civicrm_participant_payment pp
@@ -131,7 +130,7 @@ abstract class CRM_Contribute_Receipt {
         $params['ids']['event']        = $dao->event_id;
       }
 
-    } elseif (isset($params['ids']['membership']) and !empty($params['ids']['membership'])) {
+    } elseif (!empty($params['ids']['membership'])) {
       # online membership signup hook provides a membership_id but no contribution_id -
       # so lookup the contribution_id
       try {
@@ -186,7 +185,22 @@ abstract class CRM_Contribute_Receipt {
       );
       $params['ids']['contribution'] = $contributionId;
     }
-    elseif (isset($params['ids']['contact']) and !empty($params['ids']['contact'])) {
+    elseif (!empty($params['ids']['contribution'])) {
+      $contributionResult = civicrm_api3('Contribution', 'get', array(
+        'id' => $params['ids']['contribution'],
+      ));
+      if (!empty($contributionResult['id'])) {
+        $contributionDetails = $contributionResult['values'][$contributionResult['id']];
+        $params['ids']['contact'] = array(
+          'billing' => $contributionDetails['contact_id'],
+          'primary' => $contributionDetails['contact_id']
+        );
+        if (!empty($contributionDetails['contribution_source'])) {
+          $params['description'] = str_replace('Online Contribution: ', '', $contributionDetails['contribution_source']);
+        }
+      }
+    }
+    elseif (!empty($params['ids']['contact'])) {
       # get most recent contribution for contact, and associated membership id if applicable - this
       # is not an ideal way to look up the contribution, but a contact_id is all we get passed in the case of
       # some templates
@@ -473,6 +487,7 @@ abstract class CRM_Contribute_Receipt {
     $templateName = CRM_Utils_Request::retrieve('tpl_name', 'String');
     $participantId = CRM_Utils_Request::retrieve('pid', 'Integer');
     $membershipId = CRM_Utils_Request::retrieve('mid', 'Integer');
+    $contributionId = CRM_Utils_Request::retrieve('ctid', 'Integer');
     $contactId = CRM_Utils_Request::retrieve('cid', 'Integer');
 
     $template_class = CRM_Utils_PDF_Receipt_Template::getTemplateClass($templateName);
@@ -491,6 +506,9 @@ abstract class CRM_Contribute_Receipt {
     }
     if (!empty($membershipId)) {
       $receiptParams['ids']['membership'] = $membershipId;
+    }
+    if (!empty($contributionId)) {
+      $receiptParams['ids']['contribution'] = $contributionId;
     }
     if (!empty($contactId)) {
       $receiptParams['ids']['contact'] = $contactId;

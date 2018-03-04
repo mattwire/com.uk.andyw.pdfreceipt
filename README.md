@@ -12,6 +12,7 @@ The URL https://example.org/civicrm/admin/receipt/preview can be used with param
 * tpl_name: template name (eg. SOM)
 * pid: Participant ID (to generate an event receipt)
 * mid: Membership ID (to generate a membership receipt)
+* ctid: Contribution ID (to generate a contribution receipt)
 * cid: Contact ID (to generate a receipt based on contact ID, latest contribution/membership etc. (a bit of guesswork is done by the code)).
 
 #### Example:
