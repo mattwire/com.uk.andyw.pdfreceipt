@@ -267,9 +267,7 @@ class PDF_Receipt_SOM extends CRM_Contribute_Receipt {
   }
 
   public function printHeaderTop() {
-
     $pdf = &$this->pdf;
-
     $invoice_title = '';
 
     if (isset($this->participant['source']))
@@ -279,7 +277,8 @@ class PDF_Receipt_SOM extends CRM_Contribute_Receipt {
     elseif (isset($this->contribution['source']))
       $invoice_title = $this->contribution['source'];
 
-    TCPDF_FONTS::addTTFfont($this->fonts_dir . DIRECTORY_SEPARATOR . 'SourceSansPro-Bold.ttf', 'TrueType', 'ansi', 32);
+    $font = E::path('fonts' . DIRECTORY_SEPARATOR . 'SourceSansPro-Bold.ttf');
+    TCPDF_FONTS::addTTFfont($font, 'TrueType', 'ansi', 32);
 
     $this->printLogo();
 
@@ -291,7 +290,6 @@ class PDF_Receipt_SOM extends CRM_Contribute_Receipt {
     $pdf->SetFont('sourcesanspro', '', 18, true);
 
     $pdf->MultiCell(0, 0, $invoice_title, $this->border, 'C');
-
   }
 
   public function printHeaderBottom() {

@@ -19,7 +19,6 @@ abstract class CRM_Contribute_Receipt {
 
   protected $format,
     $pdf,
-    $fonts_dir,
     $image_dir,
     $ext_dir,
     $header_height,
@@ -38,8 +37,6 @@ abstract class CRM_Contribute_Receipt {
 
   public function __construct() {
     $config = &CRM_Core_Config::singleton();
-
-    $this->fonts_dir = E::path('fonts');
     $this->image_dir = $config->customFileUploadDir;
 
     // set some basic defaults if $format not populated
@@ -94,8 +91,10 @@ abstract class CRM_Contribute_Receipt {
     $pdf->setPrintFooter(false);
     $pdf->AddPage();
 
-    TCPDF_FONTS::addTTFfont($this->fonts_dir . DIRECTORY_SEPARATOR . 'SourceSansPro-Regular.ttf', 'TrueType', 'ansi', 32);
-    TCPDF_FONTS::addTTFfont($this->fonts_dir . DIRECTORY_SEPARATOR . 'SourceSansPro-Bold.ttf', 'TrueType', 'ansi', 32);
+    $font = E::path('fonts' . DIRECTORY_SEPARATOR . 'SourceSansPro-Regular.ttf');
+    TCPDF_FONTS::addTTFfont($font, 'TrueType', 'ansi', 32);
+    $font = E::path('fonts' . DIRECTORY_SEPARATOR . 'SourceSansPro-Bold.ttf');
+    TCPDF_FONTS::addTTFfont($font, 'TrueType', 'ansi', 32);
 
     $pdf->SetFont('sourcesanspro', '', $this->fontSize, true);
     $pdf->SetFont('sourcesanspro', '', $this->fontSize, true);
