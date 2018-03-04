@@ -132,31 +132,40 @@ abstract class CRM_Contribute_Receipt {
       }
 
     } elseif (isset($params['ids']['membership']) and !empty($params['ids']['membership'])) {
-
       # online membership signup hook provides a membership_id but no contribution_id -
       # so lookup the contribution_id
-      $contribution_id = CRM_Core_DAO::singleValueQuery(
-        "SELECT contribution_id FROM civicrm_membership_payment WHERE membership_id = %1 ORDER BY id DESC LIMIT 1",
-        array(
-          1 => array($params['ids']['membership'], 'Positive')
-        )
-      );
+      try {
+        $membershipPaymentDetails = civicrm_api3('MembershipPayment', 'get', array(
+          'return' => array(
+            "contribution_id",
+            "membership_id.membership_type_id.name",
+            "membership_id.contact_id"
+          ),
+          'membership_id' => $params['ids']['membership'],
+          'options' => array('limit' => 1, 'sort' => "id DESC"),
+        ));
+        if (!empty($membershipPaymentDetails['id'])) {
+          $contributionId = $membershipPaymentDetails['values'][$membershipPaymentDetails['id']]['contribution_id'];
+          $contactId = $membershipPaymentDetails['values'][$membershipPaymentDetails['id']]['membership_id.contact_id'];
+          $params['description'] = 'Membership Fees: ' . $membershipPaymentDetails['values'][$membershipPaymentDetails['id']]['membership_id.membership_type_id.name'];
+        }
+        else {
+          # ok, but that doesn't work for pay laters, as it creates a contribution and a membership, but doesn't
+          # link them together with a MembershipPayment record - please just kill me now :(
 
-      if (!$contribution_id) {
-        # ok, but that doesn't work for pay laters, as it creates a contribution and a membership, but doesn't
-        # link them together with a MembershipPayment record - please just kill me now :(
-
-        # dunno - get the last contribution for this contact or something?
-        $contribution_id = CRM_Core_DAO::singleValueQuery(
-          "SELECT id FROM civicrm_contribution WHERE contact_id = %1 ORDER BY id DESC LIMIT 1",
-          array(
-            1 => array($params['ids']['contact'], 'Positive')
-          )
-        );
-
+          # dunno - get the last contribution for this contact or something?
+          $contributionId = CRM_Core_DAO::singleValueQuery(
+            "SELECT id FROM civicrm_contribution WHERE contact_id = %1 ORDER BY id DESC LIMIT 1",
+            array(
+              1 => array($params['ids']['contact'], 'Positive')
+            )
+          );
+        }
       }
-
-      if (!$contribution_id) {
+      catch (Exception $e) {
+        $contributionId = NULL;
+      }
+      if (!$contributionId) {
         Civi::log()->error(ts(
           'Not enough data to construct invoice in %1::%2',
           array(
@@ -164,18 +173,18 @@ abstract class CRM_Contribute_Receipt {
             2 => __METHOD__
           )
         ));
-        return;
+        return $params;
       }
 
+      // We are now getting contact ID from membershipPayment api so don't need it to be passed in.
+      if (empty($params['ids']['contact'])) {
+        $params['ids']['contact'] = $contactId;
+      }
       $params['ids']['contact'] = array(
         'billing' => $params['ids']['contact'],
         'primary' => $params['ids']['contact']
       );
-      $params['ids']['contribution'] = $contribution_id;
-
-      watchdog('andyw', 'end params = <pre>' . print_r($params, true) . '</pre>');
-
-
+      $params['ids']['contribution'] = $contributionId;
     }
     elseif (isset($params['ids']['contact']) and !empty($params['ids']['contact'])) {
       # get most recent contribution for contact, and associated membership id if applicable - this
@@ -227,6 +236,8 @@ abstract class CRM_Contribute_Receipt {
       }
     }
 
+    watchdog('andyw', 'end params = <pre>' . print_r($params, true) . '</pre>');
+
     # run main invoice generation code
     $this->generateReceipt($params);
 
@@ -250,7 +261,7 @@ abstract class CRM_Contribute_Receipt {
     $this->printHeaderTop();
     $this->printHeaderBottom();
     $this->printBodyTop();
-    $this->printBody();
+    $this->printBody($params);
     $this->printBodyBottom();
     $this->printFooter();
   }
@@ -529,7 +540,7 @@ abstract class CRM_Contribute_Receipt {
     $this->currentY += ($address_height_1 > $address_height_2 ? $address_height_1 : $address_height_2) + 4;
   }
 
-  public function printBody() {
+  public function printBody($params) {
     $pdf               = &$this->pdf;
     $td_border_full    = 'text-align:center; border-right:1px solid black; border-bottom:1px solid black;';
     $td_border_partial = 'border-right:1px solid black;';

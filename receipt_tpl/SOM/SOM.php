@@ -82,7 +82,7 @@ class PDF_Receipt_SOM extends CRM_Contribute_Receipt {
 
   }
 
-  public function printBody() {
+  public function printBody($params) {
 
     $pdf       = &$this->pdf;
     $lineItems = [];
@@ -147,15 +147,17 @@ class PDF_Receipt_SOM extends CRM_Contribute_Receipt {
     }
     */
     $padding(3);
-    $pdf->SetFont('sourcesanspro', '', 8, true);
+    $pdf->SetFont('sourcesanspro', '', 10, true);
 
-    $item_details = '';
-    if (isset($this->contact['primary']['display_name']))
-      $item_details = "Appraisal Fees: " . $this->contact['primary']['display_name'];
-
-
-    // watchdog('clare', 'contact object: <pre>' . print_r($this->participant, true) . '</pre>');
-
+    $item_details = 'Item';
+    if (!empty($params['description'])) {
+      $item_details = $params['description'];
+    }
+    else {
+      if (isset($this->contact['primary']['display_name'])) {
+        $item_details = "Appraisal Fees: " . $this->contact['primary']['display_name'];
+      }
+    }
 
     $row_height = $pdf->getStringHeight($col_widths['title'], $item_details);
 
