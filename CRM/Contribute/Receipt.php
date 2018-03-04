@@ -105,12 +105,11 @@ abstract class CRM_Contribute_Receipt {
     # the above defaults if they wish to
     $this->initialize();
 
-    if (!$this->preview) {
+    // Get details for receipt
+    // If so, retrieve all related ids
+    if (isset($params['ids']['participant']) and !empty($params['ids']['participant'])) {
 
-      // If so, retrieve all related ids
-      if (isset($params['ids']['participant']) and !empty($params['ids']['participant'])) {
-
-        $dao = CRM_Core_DAO::executeQuery("
+      $dao = CRM_Core_DAO::executeQuery("
                         SELECT ct.id AS contribution_id, bc.id AS billing_contact_id, pc.id AS primary_contact_id, e.id AS event_id
                           FROM civicrm_participant_payment pp
                     INNER JOIN civicrm_contribution ct ON ct.id = pp.contribution_id
@@ -120,71 +119,71 @@ abstract class CRM_Contribute_Receipt {
                     INNER JOIN civicrm_event e ON e.id = p.event_id
                          WHERE pp.participant_id = %1
                 ", array(
-            1 => array($params['ids']['participant'], 'Integer')
-          )
-        );
+          1 => array($params['ids']['participant'], 'Integer')
+        )
+      );
 
-        if ($dao->fetch()) {
-          $params['ids']['contact'] = array(
-            'billing' => $dao->billing_contact_id,
-            'primary' => $dao->primary_contact_id
-          );
-          $params['ids']['contribution'] = $dao->contribution_id;
-          $params['ids']['event']        = $dao->event_id;
-        }
-
-      } elseif (isset($params['ids']['membership']) and !empty($params['ids']['membership'])) {
-
-        # online membership signup hook provides a membership_id but no contribution_id -
-        # so lookup the contribution_id
-        $contribution_id = CRM_Core_DAO::singleValueQuery(
-          "SELECT contribution_id FROM civicrm_membership_payment WHERE membership_id = %1 ORDER BY id DESC LIMIT 1",
-          array(
-            1 => array($params['ids']['membership'], 'Positive')
-          )
-        );
-
-        if (!$contribution_id) {
-          # ok, but that doesn't work for pay laters, as it creates a contribution and a membership, but doesn't
-          # link them together with a MembershipPayment record - please just kill me now :(
-
-          # dunno - get the last contribution for this contact or something?
-          $contribution_id = CRM_Core_DAO::singleValueQuery(
-            "SELECT id FROM civicrm_contribution WHERE contact_id = %1 ORDER BY id DESC LIMIT 1",
-            array(
-              1 => array($params['ids']['contact'], 'Positive')
-            )
-          );
-
-        }
-
-        if (!$contribution_id) {
-          CRM_Core_Error::debug_log_message(ts(
-            'Not enough data to construct invoice in %1::%2',
-            array(
-              1 => __CLASS__,
-              2 => __METHOD__
-            )
-          ));
-          return;
-        }
-
+      if ($dao->fetch()) {
         $params['ids']['contact'] = array(
-          'billing' => $params['ids']['contact'],
-          'primary' => $params['ids']['contact']
+          'billing' => $dao->billing_contact_id,
+          'primary' => $dao->primary_contact_id
         );
-        $params['ids']['contribution'] = $contribution_id;
+        $params['ids']['contribution'] = $dao->contribution_id;
+        $params['ids']['event']        = $dao->event_id;
+      }
 
-        watchdog('andyw', 'end params = <pre>' . print_r($params, true) . '</pre>');
+    } elseif (isset($params['ids']['membership']) and !empty($params['ids']['membership'])) {
+
+      # online membership signup hook provides a membership_id but no contribution_id -
+      # so lookup the contribution_id
+      $contribution_id = CRM_Core_DAO::singleValueQuery(
+        "SELECT contribution_id FROM civicrm_membership_payment WHERE membership_id = %1 ORDER BY id DESC LIMIT 1",
+        array(
+          1 => array($params['ids']['membership'], 'Positive')
+        )
+      );
+
+      if (!$contribution_id) {
+        # ok, but that doesn't work for pay laters, as it creates a contribution and a membership, but doesn't
+        # link them together with a MembershipPayment record - please just kill me now :(
+
+        # dunno - get the last contribution for this contact or something?
+        $contribution_id = CRM_Core_DAO::singleValueQuery(
+          "SELECT id FROM civicrm_contribution WHERE contact_id = %1 ORDER BY id DESC LIMIT 1",
+          array(
+            1 => array($params['ids']['contact'], 'Positive')
+          )
+        );
+
+      }
+
+      if (!$contribution_id) {
+        Civi::log()->error(ts(
+          'Not enough data to construct invoice in %1::%2',
+          array(
+            1 => __CLASS__,
+            2 => __METHOD__
+          )
+        ));
+        return;
+      }
+
+      $params['ids']['contact'] = array(
+        'billing' => $params['ids']['contact'],
+        'primary' => $params['ids']['contact']
+      );
+      $params['ids']['contribution'] = $contribution_id;
+
+      watchdog('andyw', 'end params = <pre>' . print_r($params, true) . '</pre>');
 
 
-      } elseif (isset($params['ids']['contact']) and !empty($params['ids']['contact'])) {
+    }
+    elseif (isset($params['ids']['contact']) and !empty($params['ids']['contact'])) {
+      # get most recent contribution for contact, and associated membership id if applicable - this
+      # is not an ideal way to look up the contribution, but a contact_id is all we get passed in the case of
+      # some templates
 
-        # get most recent contribution for contact, and associated membership id if applicable - this
-        # is not an ideal way to look up the contribution, but a contact_id is all we get passed in the case of
-        # some templates
-
-        $dao = CRM_Core_DAO::executeQuery("
+      $dao = CRM_Core_DAO::executeQuery("
                         SELECT ct.id AS contribution_id, m.id AS membership_id
                           FROM civicrm_contact c
                     INNER JOIN civicrm_contribution ct ON ct.contact_id = c.id
@@ -194,45 +193,39 @@ abstract class CRM_Contribute_Receipt {
                       ORDER BY ct.receive_date DESC
                          LIMIT 1
                 ", array(
-            1 => array($params['ids']['contact'], 'Integer')
-          )
+          1 => array($params['ids']['contact'], 'Integer')
+        )
+      );
+      if ($dao->fetch()) {
+        $params['ids']['contact'] = array(
+          'billing' => $params['ids']['contact'],
+          'primary' => $params['ids']['contact']
         );
-        if ($dao->fetch()) {
-          $params['ids']['contact'] = array(
-            'billing' => $params['ids']['contact'],
-            'primary' => $params['ids']['contact']
-          );
-          $params['ids']['contribution'] = $dao->contribution_id;
-          $params['ids']['membership']   = $dao->membership_id;
-        }
+        $params['ids']['contribution'] = $dao->contribution_id;
+        $params['ids']['membership']   = $dao->membership_id;
+      }
 
-      } else return; # for now
+    }
+    else {
+      Civi::log()->warning('PDFReceipt: No parameters found to generate receipt');
+      return $params;
+    }
 
-
-      # load required entities - I think I may have been on drugs when I wrote this
-      # todo: rewrite sensibly
-      if (isset($params['ids'])) {
-        foreach ($params['ids'] as $entity => $id) {
-          if (method_exists($this, 'get' . ucfirst($entity))) {
-            if (is_array($id)) {
-              $array = array();
-              foreach ($id as $subtype => $subtype_id)
-                $array[$subtype] = call_user_func_array(array($this, 'get' . ucfirst($entity)), array($subtype_id));
-              $this->$entity = $array;
-            } else {
-              $this->$entity = call_user_func_array(array($this, 'get' . ucfirst($entity)), array($id));
-            }
+    # load required entities - I think I may have been on drugs when I wrote this
+    # todo: rewrite sensibly
+    if (isset($params['ids'])) {
+      foreach ($params['ids'] as $entity => $id) {
+        if (method_exists($this, 'get' . ucfirst($entity))) {
+          if (is_array($id)) {
+            $array = array();
+            foreach ($id as $subtype => $subtype_id)
+              $array[$subtype] = call_user_func_array(array($this, 'get' . ucfirst($entity)), array($subtype_id));
+            $this->$entity = $array;
+          } else {
+            $this->$entity = call_user_func_array(array($this, 'get' . ucfirst($entity)), array($id));
           }
         }
       }
-    } else {
-      # Otherwise (if this is a preview), populate with dummy details
-      $this->participant        = $this->getDummyDetails('participant');
-      $this->contact['billing'] = $this->getDummyDetails('contact');
-      $this->contact['primary'] = $this->contact['billing'];
-      $this->contribution       = $this->getDummyDetails('contribution');
-      $this->event              = $this->getDummyDetails('event');
-      $this->membership         = $this->getDummyDetails('membership');
     }
 
     # run main invoice generation code
@@ -265,9 +258,6 @@ abstract class CRM_Contribute_Receipt {
 
   // Get (primary or billing) address for contact id
   protected function getAddress($contact_id, $type='primary') {
-    if ($this->preview)
-      return $this->getDummyDetails('address');
-
     $params = array(
       'version'    => '3',
       'contact_id' => $contact_id,
@@ -342,42 +332,6 @@ abstract class CRM_Contribute_Receipt {
     return array();
   }
 
-  protected function getDummyDetails($entity) {
-    $details = array(
-      'address'      => array(
-        'street_address'    => '39 Test Street',
-        'city'              => 'Testville',
-        'postal_code'       => 'BS1 1AA',
-        'state_province_id' => 2620,
-        'country_id'        => 1226
-
-      ),
-      'participant'  => array(
-        'participant_register_date' => date('c')
-      ),
-      'contact'      => array(
-        'contact_type'   => 'Individual',
-        'display_name'   => 'Bob Jones'
-      ),
-      'contribution' => array(
-        'invoice_id'             => md5('x'),
-        'is_pay_later'           => 0,
-        'total_amount'           => 1,
-        'contribution_status_id' => 1
-      ),
-      'event'        => array(
-
-      ),
-      'membership'   => array(
-
-      ),
-      'lineItems'    => array(
-
-      )
-    );
-    return isset($details[$entity]) ? $details[$entity] : array();
-  }
-
   // Get event from event id
   protected function getEvent($id) {
     $result = civicrm_api('event', 'get',
@@ -402,7 +356,7 @@ abstract class CRM_Contribute_Receipt {
         'contribution_id' => $contribution_id
       ]);
     } catch (CiviCRM_API3_Exception $e) {
-      CRM_Core_Error::debug_log_message('Line item get failed in ' . __CLASS__ . '::' . __METHOD__ . '(): ' . $e->getMessage());
+      Civi::log()->error('Line item get failed in ' . __CLASS__ . '::' . __METHOD__ . '(): ' . $e->getMessage());
     }
 
     if (isset($result['values']))
@@ -507,16 +461,32 @@ abstract class CRM_Contribute_Receipt {
   // page callback for receipt preview - output pdf data inline
   public function preview() {
     $templateName = CRM_Utils_Request::retrieve('tpl_name', 'String');
+    $participantId = CRM_Utils_Request::retrieve('pid', 'Integer');
+    $membershipId = CRM_Utils_Request::retrieve('mid', 'Integer');
+    $contactId = CRM_Utils_Request::retrieve('cid', 'Integer');
+
     $template_class = CRM_Utils_PDF_Receipt_Template::getTemplateClass($templateName);
     if (!$template_class) {
       CRM_Core_Error::statusBounce('You must specify a valid "tpl_name" as parameter');
     }
     $receipt = new $template_class;
 
-    $receipt->create($params = array(
+    $receiptParams = array(
       'filename' => 'receipt.pdf',
       'preview'  => true
-    ));
+    );
+
+    if (!empty($participantId)) {
+      $receiptParams['ids']['participant'] = $participantId;
+    }
+    if (!empty($membershipId)) {
+      $receiptParams['ids']['membership'] = $membershipId;
+    }
+    if (!empty($contactId)) {
+      $receiptParams['ids']['contact'] = $contactId;
+    }
+
+    $receipt->create($receiptParams);
 
     CRM_Utils_System::civiExit();
   }
