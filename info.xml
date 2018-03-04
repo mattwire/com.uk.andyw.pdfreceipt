@@ -21,4 +21,7 @@
     <ver>4.7</ver>
   </compatibility>
   <comments></comments>
+  <civix>
+    <namespace>CRM/PDF_Receipt</namespace>
+  </civix>
 </extension>
